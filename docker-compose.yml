@@ -1,0 +1,11 @@
+
+services:
+  chatbot-api:
+    build: .
+    image: chatbot-api:local
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    environment:
+      PYTHONUNBUFFERED: "1"

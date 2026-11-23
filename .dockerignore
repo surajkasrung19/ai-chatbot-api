@@ -1,0 +1,33 @@
+
+# Virtual environments
+.venv/
+venv/
+
+# Python generated files
+__pycache__/
+*.pyc
+*.pyo
+
+# Git repository
+.git/
+.gitignore
+
+# Environment secrets
+.env
+.env.*
+
+# Testing artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local scripts and tests
+tests/
+scripts/
+
+# Editor files
+.vscode/
+.idea/
+
+# Local logs
+*.log
