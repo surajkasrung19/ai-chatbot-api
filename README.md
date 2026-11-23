@@ -1,5 +1,9 @@
 # AI Chatbot API — FastAPI
 
+
+[![Chatbot API Tests](https://github.com/surajkasrung19/ai-chatbot-api/actions/workflows/tests.yml/badge.svg)](https://github.com/surajkasrung19/ai-chatbot-api/actions/workflows/tests.yml)
+
+
 A Python backend chatbot project built with **FastAPI**, featuring REST APIs, real-time **WebSocket** chat, validated requests, and in-memory conversation management. The chatbot currently generates **rule-based responses**; it does **not** use a large language model yet.
 
 ## Features
