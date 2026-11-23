@@ -38,7 +38,7 @@ def info():
         "project": "AI Chatbot API",
         "version": "1.0.0",
         "framework": "FastAPI",
-        "charbot_type": "Rule-based"
+        "chatbot_type": "Rule-based"
     }
 
 

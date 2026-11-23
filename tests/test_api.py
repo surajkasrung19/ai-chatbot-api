@@ -101,3 +101,11 @@ def test_delete_unknown_conversation(client):
     assert "not found" in response.json()["detail"].lower()
 
     assert len(conversations_db) == 0
+
+
+def test_info(client):
+    response = client.get(
+        "/info"
+    )
+
+    assert response.status_code  == 200
