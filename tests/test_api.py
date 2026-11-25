@@ -1,4 +1,7 @@
 from app.db.memory import conversations_db
+from app.models import Message
+from app.services import chat_service
+from app.services.provider_errors import ChatProviderError
 
 
 def test_create_chat(client):
@@ -109,3 +112,38 @@ def test_info(client):
     )
 
     assert response.status_code  == 200
+
+
+def test_chat_provider_unavailable(client, monkeypatch):
+
+    class FailingResponder:
+        async def generate(
+                self,
+                message: str,
+                history: list[Message]
+        ) -> str:
+            raise ChatProviderError(
+                detail="AI service is temporarily unavailable.",
+                status_code=503,
+                code="connection_error"
+            )
+
+    monkeypatch.setattr(
+        chat_service,
+        "get_responder",
+        lambda: FailingResponder()
+    )
+
+    response = client.post(
+        "/chat",
+        json={"message": "Explain FastAPI"}
+    )
+
+    assert response.status_code == 503
+
+    assert response.json() == {
+        "detail": "AI service is temporarily unavailable."
+    }
+
+    # A failed new request must not create a conversation
+    assert len(conversations_db) == 0

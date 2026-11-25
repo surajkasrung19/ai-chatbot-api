@@ -4,7 +4,11 @@
 [![Chatbot API Tests](https://github.com/surajkasrung19/ai-chatbot-api/actions/workflows/tests.yml/badge.svg)](https://github.com/surajkasrung19/ai-chatbot-api/actions/workflows/tests.yml)
 
 
-A Python backend chatbot project built with **FastAPI**, featuring REST APIs, real-time **WebSocket** chat, validated requests, and in-memory conversation management. The chatbot currently generates **rule-based responses**; it does **not** use a large language model yet.
+A Python backend chatbot project built with **FastAPI**, featuring REST APIs, real-time **WebSocket** communication, conversation management, and pluggable AI response providers.
+
+The application supports both a rule-based response engine and AI-generated replies through **GroqCloud's OpenAI-compatible API**, using a provider abstraction to keep te business logic independent of the model implementation.
+
+It includes Pydantic validation, asynchronous request processing, automated pytest tests, Docker containerization, and **GitHub Actions CI**.
 
 ## Features
 
