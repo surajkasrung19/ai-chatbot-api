@@ -1,13 +1,14 @@
+import asyncio
 import pytest
 from fastapi import HTTPException
 
-from app.models import ChatRequest
+from app.models import ChatRequest, Message
 from app.db.memory import conversations_db
 
 from app.services.chat_service import (
     create_conversation,
     get_conversation,
-    process_chat,
+    process_chat_async,
 )
 
 from app.utils.nlp_stub import(
@@ -47,21 +48,24 @@ def test_missing_conversation():
     assert exc_info.value.status_code == 404
 
 
-def test_process_chat_with_mocked_response(monkeypatch):
+def test_process_chat_with_mocked_response():
 
-    def fake_nlp_response(message: str) -> str:
-        return "This is a mocked response"
+    class FakeResponder:
+        async def generate(
+                self,
+                message: str,
+                history: list[Message]
+        ) -> str:
+            return "This is a mocked response"
 
-    monkeypatch.setattr(
-        "app.services.chat_service.generate_stub_response",
-        fake_nlp_response
-    )
 
-    result = process_chat(
-        ChatRequest(message="Hello")
+    result = asyncio.run(
+        process_chat_async(
+            ChatRequest(message="Hello"),
+            responder=FakeResponder()
+        )
     )
 
     assert result.message.content == "This is a mocked response"
     assert result.conversation_id in conversations_db
-    assert len(result.conversation_history) == 2
-
+    assert len(result.conversation_history) ==  2

@@ -8,11 +8,11 @@ from pydantic import ValidationError
 from app.models import Message, ChatRequest, ChatResponse, Conversation
 from app.services.websocket_manager import manager
 from app.services.chat_service import (
-    process_chat,
     get_conversation,
     delete_conversation,
     process_chat_async
 )
+from app.services.provider_errors import ChatProviderError
 
 
 router = APIRouter()
@@ -59,7 +59,15 @@ def delete_conversation_history(conversation_id: str) -> None:
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(payload: ChatRequest) -> ChatResponse:
-    return await process_chat_async(payload)
+
+    try:
+        return await process_chat_async(payload)
+
+    except ChatProviderError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail
+        ) from exc
 
 
 @router.websocket("/ws/{client_id}")
@@ -101,6 +109,18 @@ async def websocket_chat(
                     {
                         "type": "error",
                         "status_code": exc.status_code,
+                        "detail": exc.detail
+                    }
+                )
+                continue
+
+            except ChatProviderError as exc:
+                await manager.send_message(
+                    client_id,
+                    {
+                        "type": "error",
+                        "status_code": exc.status_code,
+                        "code": exc.code,
                         "detail": exc.detail
                     }
                 )
