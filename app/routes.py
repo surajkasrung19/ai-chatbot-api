@@ -1,8 +1,9 @@
 import json
 from datetime import datetime, timezone
 from uuid import uuid4
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from app.models import Message, ChatRequest, ChatResponse, Conversation
@@ -13,6 +14,20 @@ from app.services.chat_service import (
     process_chat_async
 )
 from app.services.provider_errors import ChatProviderError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from app.db.session import get_db_session, get_session_factory
+
+
+SessionDep = Annotated[
+    AsyncSession,
+    Depends(get_db_session)
+]
+
+
+SessionFactoryDep = Annotated[
+    async_sessionmaker[AsyncSession],
+    Depends(get_session_factory),
+]
 
 
 router = APIRouter()
@@ -43,37 +58,62 @@ def info():
 
 
 @router.get(
-    "/conversations/{conversation_id}",
-    response_model=Conversation
+        "/conversations/{conversation_id}",
+        response_model=Conversation,
 )
-def get_conversation_history(conversation_id: str) -> Conversation:
-    return get_conversation(conversation_id)
+async def get_conversation_history(
+    conversation_id: str,
+    db: SessionDep,
+) -> Conversation:
+
+    return await get_conversation(
+        db,
+        conversation_id,
+    )
+
 
 @router.delete(
-    "/conversations/{conversation_id}",
-    status_code=status.HTTP_204_NO_CONTENT
+        "/conversations/{conversation_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
 )
-def delete_conversation_history(conversation_id: str) -> None:
-    delete_conversation(conversation_id)
+async def delete_conversation_history(
+    conversation_id:str,
+    db: SessionDep
+) -> None:
+
+    await delete_conversation(
+        db,
+        conversation_id
+    )
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest) -> ChatResponse:
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+)
+async def chat(
+    payload: ChatRequest,
+    db: SessionDep,
+) -> ChatResponse:
 
     try:
-        return await process_chat_async(payload)
+        return await process_chat_async(
+            payload,
+            session=db,
+        )
 
     except ChatProviderError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail=exc.detail
+            detail=exc.detail,
         ) from exc
 
 
 @router.websocket("/ws/{client_id}")
 async def websocket_chat(
     websocket: WebSocket,
-    client_id: str
+    client_id: str,
+    session_factory: SessionFactoryDep
 ) -> None:
 
     connected = await manager.connect(websocket, client_id)
@@ -91,7 +131,11 @@ async def websocket_chat(
                 payload = ChatRequest.model_validate(data)
 
                 # process the message using our chat service
-                response = await process_chat_async(payload)
+                async with session_factory() as db:
+                    response = await process_chat_async(
+                        payload,
+                        session=db,
+                    )
 
             except (ValidationError, json.JSONDecodeError):
                 await manager.send_message(
