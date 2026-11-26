@@ -1,14 +1,9 @@
-import asyncio
+
 from datetime import datetime, timezone
 from uuid import uuid4
 
-
 from fastapi import HTTPException
-from app.services.responders import ChatResponder
-from app.services.responder_factory import get_responder
-
-from app.db.memory import conversations_db
-from app.utils.nlp_stub import generate_stub_response
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     ChatRequest,
@@ -16,75 +11,84 @@ from app.models import (
     Conversation,
     Message,
 )
+from app.db import conversation_repository as repository
+from app.services.responders import ChatResponder
+from app.services.responder_factory import get_responder
+from app.services.provider_errors import ChatProviderError
 
 
-def generate_bot_response(user_message: str) -> str:
-    response = generate_stub_response(user_message)
-    return response
+async def get_conversation(
+    session: AsyncSession,
+    conversation_id: str,
+) -> Conversation:
 
-
-def get_conversation(conversation_id: str) -> Conversation:
-    conversation = conversations_db.get(conversation_id)
-
-    if conversation is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Conversation {conversation_id} not found"
-        )
-
-    return conversation
-
-def create_conversation() -> Conversation:
-    now = datetime.now(timezone.utc)
-
-    conversation = Conversation(
-        id=str(uuid4()),
-        created_at=now,
-        updated_at=now
+    record = await repository.find_conversation(
+        session, conversation_id
     )
 
-    conversations_db[conversation.id] = conversation
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Conversation {conversation_id} not found",
+        )
 
-    return conversation
+    return repository.to_schema(record)
 
 
-def delete_conversation(conversation_id: str) -> None:
+async def delete_conversation(
+    session: AsyncSession,
+    conversation_id: str,
+) -> None:
 
-    get_conversation(conversation_id)
+    deleted = await repository.delete_conversation(
+        session, conversation_id
+    )
 
-    del conversations_db[conversation_id]
-
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Conversation {conversation_id} not found",
+        )
 
 
 async def process_chat_async(
     payload: ChatRequest,
-    responder: ChatResponder | None = None
+    session: AsyncSession,
+    responder: ChatResponder | None = None,
 ) -> ChatResponse:
 
+    # Load previous history, if provided.
     if payload.conversation_id is None:
-        conversation = None
         history = []
+
     else:
-        conversation = get_conversation(
-            payload.conversation_id
+        conversation = await get_conversation(
+            session, payload.conversation_id
         )
+
         history = conversation.messages.copy()
 
-    # Use the injected provider or the configured default
-    engine = responder if responder is not None else get_responder()
+        # End the read transaction before external AI I/O.
+        await session.rollback()
 
-    # Generate the reply before modifying conversation state
+    engine = (
+        responder
+        if responder is not None
+        else get_responder()
+    )
+
+    # Do not write to the database yet.
     bot_reply = await engine.generate(
         message=payload.message,
-        history=history
+        history=history,
     )
 
     if not isinstance(bot_reply, str) or not bot_reply.strip():
-        raise RuntimeError("Invalid chatbot response")
-
-    # Only create a new conversation after generation succeeds
-    if conversation is None:
-        conversation = create_conversation()
+        raise ChatProviderError(
+            detail="AI provider returned an empty response.",
+            status_code=502,
+            code="empty_response",
+        )
 
     now = datetime.now(timezone.utc)
 
@@ -92,25 +96,31 @@ async def process_chat_async(
         id=str(uuid4()),
         role="user",
         content=payload.message,
-        created_at=now
+        created_at=now,
     )
 
     assistant_message = Message(
         id=str(uuid4()),
         role="assistant",
         content=bot_reply,
-        created_at=datetime.now(timezone.utc)
+        created_at=datetime.now(timezone.utc),
     )
 
-    conversation.messages.extend([
-        user_message,
-        assistant_message
-    ])
-
-    conversation.updated_at = datetime.now(timezone.utc)
+    try:
+        saved = await repository.save_exchange(
+            session=session,
+            conversation_id=payload.conversation_id,
+            user_message=user_message,
+            assistant_message=assistant_message,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Conversation no longer exists",
+        ) from exc
 
     return ChatResponse(
         message=assistant_message,
-        conversation_id=conversation.id,
-        conversation_history=conversation.messages.copy()
+        conversation_id=saved.id,
+        conversation_history=saved.messages,
     )

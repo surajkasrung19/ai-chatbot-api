@@ -1,9 +1,29 @@
+import asyncio
+
+from sqlalchemy import func, select
+from app.db.orm_models import ConversationORM
 
 from app.services.websocket_manager import manager
 from app.models import Message
 from app.services import chat_service
-from app.db.memory import conversations_db
+
 from app.services.provider_errors import ChatProviderError
+
+
+
+def count_saved_conversations(db_factory) -> int:
+
+    async def query_database():
+        async with db_factory() as session:
+            count = await session.scalar(
+                select(func.count()).select_from(
+                    ConversationORM
+                )
+            )
+            return int(count or 0)
+
+    return asyncio.run(query_database())
+
 
 
 def test_websocket_conversation(client):
@@ -61,7 +81,8 @@ def test_websocket_invalid_conversation(client):
 
 def test_websocket_recovers_after_provider_failure(
     client,
-    monkeypatch
+    monkeypatch,
+    db_factory,
 ):
 
     # Arrange: Fake provider fails on the first request
@@ -111,7 +132,7 @@ def test_websocket_recovers_after_provider_failure(
         assert first["code"] == "provider_unavailable"
 
         # Failed new conversations should not be stored
-        assert len(conversations_db) == 0
+        assert count_saved_conversations(db_factory) == 0
 
         # Second request: same WebSocket connection
         ws.send_json({
@@ -129,5 +150,5 @@ def test_websocket_recovers_after_provider_failure(
 
         conversation_id = second["conversation_id"]
 
-        assert conversation_id in conversations_db
+        assert count_saved_conversations(db_factory) == 1
         assert responder.call_count == 2

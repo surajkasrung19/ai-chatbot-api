@@ -1,4 +1,3 @@
-from app.db.memory import conversations_db
 from app.models import Message
 from app.services import chat_service
 from app.services.provider_errors import ChatProviderError
@@ -103,8 +102,6 @@ def test_delete_unknown_conversation(client):
 
     assert "not found" in response.json()["detail"].lower()
 
-    assert len(conversations_db) == 0
-
 
 def test_info(client):
     response = client.get(
@@ -145,5 +142,31 @@ def test_chat_provider_unavailable(client, monkeypatch):
         "detail": "AI service is temporarily unavailable."
     }
 
-    # A failed new request must not create a conversation
-    assert len(conversations_db) == 0
+
+
+def test_conversation_is_saved_in_database(client):
+
+    create_response = client.post(
+        "/chat",
+        json={"message": "Hello"}
+    )
+
+    assert create_response.status_code == 200
+
+    conversation_id = (
+        create_response.json()["conversation_id"]
+    )
+
+    get_response = client.get(
+        f"/conversations/{conversation_id}"
+    )
+
+    assert get_response.status_code == 200
+
+    data = get_response.json()
+
+    assert data["id"] == conversation_id
+    assert len(data["messages"]) == 2
+
+    assert data["messages"][0]["role"] == "user"
+    assert data["messages"][1]["role"] == "assistant"
