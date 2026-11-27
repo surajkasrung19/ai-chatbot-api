@@ -37,6 +37,7 @@ def to_schema(record: ConversationORM) -> Conversation:
 async def find_conversation(
     session: AsyncSession,
     conversation_id: str,
+    lock: bool = False,
 ) -> ConversationORM | None:
 
     statement = (
@@ -44,6 +45,12 @@ async def find_conversation(
         .options(selectinload(ConversationORM.messages))
         .where(ConversationORM.id == conversation_id)
     )
+
+    # Add row-level locking
+    if lock:
+        statement = statement.with_for_update(
+            of=ConversationORM
+        )
 
     return await session.scalar(statement)
 
@@ -70,7 +77,9 @@ async def save_exchange(
 
         else:
             conversation = await find_conversation(
-                session, conversation_id
+                session,
+                conversation_id,
+                lock=True
             )
 
             if conversation is None:
@@ -113,7 +122,9 @@ async def delete_conversation(
 
     async with session.begin():
         conversation = await find_conversation(
-            session, conversation_id
+            session,
+            conversation_id,
+            lock=True
         )
 
         if conversation is None:
